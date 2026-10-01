@@ -40,8 +40,8 @@ max_vel    <- 100     # maximum velocity (m/s)
 # *TODO*:
 # define the target's initial position and velocity. Note : Velocity
 # remains constant.
-target_range0 <- 80    # initial range (m)
-target_vel    <- -70   # constant radial velocity (m/s), negative = approaching
+target_range0 <- 75    # initial range (m)
+target_vel    <- -25   # constant radial velocity (m/s), negative = approaching
 
 ## FMCW Waveform Generation
 
@@ -82,26 +82,115 @@ Mix <- numeric(length(t))  # beat signal
 r_t <- numeric(length(t))
 td  <- numeric(length(t))
 
+## FMCW Waveform Visualization
+# Plots the previously designed FMCW waveform (B, Tchirp, slope from above)
+# on the previously defined timestamp vector t: the transmitted chirp ramp,
+# the delayed receive ramp for the target's initial position, and the
+# resulting (nearly constant) beat frequency that the range FFT will later
+# measure. The actual Tx/Rx/Mix signals are generated in the simulation
+# loop below.
+
+td0 <- 2 * target_range0 / c          # round-trip delay at initial position (s)
+fb  <- slope * td0                    # beat frequency from range (Hz)
+
+open_device("00_fmcw_chirp", width = 1000, height = 1200)
+par(mfrow = c(3, 1), mar = c(5, 5, 3, 2) + 0.1)
+
+# (1) Transmitted chirp: instantaneous frequency fc + slope*t over two
+# chirps (first 2*Nr samples of the defined timestamp vector t).
+t2 <- t[1:(2 * Nr)]
+plot(t2 * 1e6, (fc + slope * (t2 %% Tchirp)) / 1e9, type = "l", col = "blue",
+     lwd = 2, main = "FMCW Waveform: Transmitted Chirp",
+     xlab = "Time [us]", ylab = "Frequency [GHz]")
+abline(h = c(fc, fc + B) / 1e9, col = "gray", lty = 3)
+legend("topleft",
+       sprintf("slope = %.3e Hz/s (B = %.0f MHz, Tchirp = %.2f us)",
+               slope, B / 1e6, Tchirp * 1e6), bty = "n")
+
+# (2) Tx ramp vs delayed Rx ramp within one chirp (first Nr samples of t):
+# the vertical offset between the ramps is the beat frequency
+# fb = slope * td. The Doppler shift of the moving target is omitted here —
+# it does not change the range beat, it shows up as a phase shift between
+# consecutive chirps.
+t1 <- t[1:Nr]
+plot(t1 * 1e6, (fc + slope * t1) / 1e9, type = "l", col = "blue", lwd = 2,
+     main = "FMCW Waveform: Tx vs Rx (delayed) Chirp",
+     xlab = "Time [us]", ylab = "Frequency [GHz]")
+lines(t1 * 1e6, (fc + slope * (t1 - td0)) / 1e9, col = "red", lwd = 2)
+abline(v = td0 * 1e6, col = "gray", lty = 3)
+x_mark <- 0.85 * max(t1)
+arrows(x_mark * 1e6, (fc + slope * x_mark) / 1e9,
+       x_mark * 1e6, (fc + slope * (x_mark - td0)) / 1e9,
+       code = 3, angle = 90, length = 0.05)
+text(x_mark * 1e6, (fc + slope * (x_mark - td0 / 2)) / 1e9,
+     sprintf("fb = %.2f MHz -> R = %.1f m", fb / 1e6, fb * c / (2 * slope)),
+     pos = 2, cex = 0.9, offset = 1)
+legend("topleft", c("Tx", "Rx (delayed by td = 2R/c)"),
+       col = c("blue", "red"), lty = 1, lwd = 2, bty = "n")
+
+# (3) Beat frequency over one chirp: essentially constant, it encodes range.
+# The approaching target lets fb fall by only ~25 Hz over the chirp
+# (vs ~10.2 MHz), so the y axis is fixed to the full scale: the curve is
+# flat for all practical purposes, and the range FFT sees one sharp bin.
+fb_t <- slope * 2 * (target_range0 + target_vel * t1) / c
+plot(t1 * 1e6, fb_t / 1e6, type = "l", col = "darkgreen", lwd = 2,
+     main = "FMCW Waveform: Beat Frequency (slope * 2R(t)/c)",
+     xlab = "Time [us]", ylab = "Beat frequency [MHz]",
+     ylim = c(0, 1.05 * max(fb_t) / 1e6))
+legend("bottomleft",
+       sprintf("fb = %.2f MHz -> R = fb*c/(2*slope) = %.1f m\n(falls by only %.0f Hz over the chirp as the target approaches)",
+               fb / 1e6, fb * c / (2 * slope),
+               slope * 2 * abs(target_vel) * Tchirp / c), bty = "n")
+
+close_device()
+
 ## Signal generation and Moving Target simulation
 # Running the radar scenario over the time.
 
-for (i in seq_along(t)) {
+# Remark: The below code is vectorized to better show the simplicity of the signal formation
 
-  # *TODO* :
-  # For each time stamp update the Range of the Target for constant velocity.
-  # r_t[i] <- ...
+# Range of the target for constant velocity, at every time stamp.
+r_t <- target_range0 + target_vel * t
+# Time delay of the received signal (out and back).
+td <- 2 * r_t / c
 
-  # *TODO* :
-  # For each time sample we need update the transmitted and received signal.
-  # Tx[i] <- ...
-  # Rx[i] <- ...
+# Transmitted and received signal for every time sample.
+Tx <- cos(2 * pi * (fc * t + 0.5 * slope * t^2))
+Rx <- cos(2 * pi * (fc * (t - td) + 0.5 * slope * (t - td)^2))
 
-  # *TODO* :
-  # Now by mixing the Transmit and Receive generate the beat signal.
-  # This is done by element wise matrix multiplication of Transmit and
-  # Receiver Signal.
-  # Mix[i] <- ...
-}
+# Beat signal: element-wise product of Transmit and Receive signal.
+Mix <- Tx * Rx
+
+# Visualize the generated beat signal in the time domain: the product
+# Tx * Rx oscillates dominantly at the beat frequency fb = 10.23 MHz
+# (superimposed with the fast sum-frequency term of the mixing product).
+# Its period is the range information that the range FFT will extract as a
+# peak in task 3.
+
+open_device("00_beat_signal", width = 1000, height = 1000)
+par(mfrow = c(2, 1), mar = c(5, 5, 3, 2) + 0.1)
+
+# (1) Complete first chirp: the beat signal oscillates at fb.
+plot(t1 * 1e6, Mix[1:Nr], type = "l", col = "darkblue",
+     main = "Beat Signal (Mix = Tx * Rx), First Chirp",
+     xlab = "Time [us]", ylab = "Amplitude")
+abline(h = 0, col = "gray", lty = 3)
+legend("topright",
+       sprintf("dominant oscillation at fb = %.2f MHz (R = %.1f m)",
+               fb / 1e6, fb * c / (2 * slope)), bty = "n")
+
+# (2) Zoom on the first microsecond: the individual beat cycles.
+n_zoom <- which(t1 >= 1e-6)[1]
+plot(t1[1:n_zoom] * 1e6, Mix[1:n_zoom], type = "l", col = "darkblue",
+     main = "Beat Signal, First 1 us (zoom)",
+     xlab = "Time [us]", ylab = "Amplitude")
+abline(h = 0, col = "gray", lty = 3)
+legend("bottomright",
+       sprintf("period ~ %.0f ns -> fb ~ %.2f MHz -> R = %.1f m",
+               1 / fb * 1e9, fb / 1e6, fb * c / (2 * slope)), bty = "n")
+
+close_device()
+
 
 ## RANGE MEASUREMENT
 
