@@ -29,6 +29,7 @@ they are shown on screen.
 |---|---|
 | `plots/00_fmcw_chirp.png` | FMCW waveform visualization (section 1) |
 | `plots/00_beat_signal.png` | Beat (mixed) signal in the time domain (section 2) |
+| `plots/01_range_fft.png` | Range measurement output of the 1st FFT (section 3) |
 
 ## 1. FMCW Waveform Design
 
@@ -124,4 +125,33 @@ Visualization:
    sum-frequency term of the mixing product.
 2. A zoom on the first microsecond — the individual beat cycles with a
    period of ≈ 98 ns, i.e. `fb ≈ 10.23 MHz`, the frequency that encodes
-   the 75 m range and that the range FFT (next task) will extract as a peak.
+   the 75 m range and that the range FFT (see task 3 below) extracts as a peak.
+
+## 3. Range FFT (1st FFT)
+
+**Requirement:** Implement the range FFT on the beat signal and plot the
+result. A correct implementation must produce a peak at the correct range,
+i.e. the target's initial position within a ±10 m tolerance.
+
+The beat signal is reshaped into an `Nr × Nd` matrix (column-major, matching
+MATLAB's `reshape`: column `j` holds chirp `j`). The FFT of the first chirp
+is taken along the range dimension, normalized by `Nr`, converted to
+magnitude and cut to one side of the double-sided spectrum:
+
+```
+sig_fft = |FFT(Mix2D[, 1]) / Nr|, first Nr/2 samples
+```
+
+Bin `k` corresponds to `k * c / (2B) = k * 1 m` of range. The resulting
+plot (`plots/01_range_fft.png`) shows a clear single peak at
+**≈ 75 m — the target's initial position** (tolerance ±10 m: satisfied).
+
+The script reports the detected peak:
+
+```
+Range FFT peak: bin 75 -> 75.0 m (target_range0 = 75 m)
+```
+
+Visualization:
+
+![Range FFT: single peak at 75 m](plots/01_range_fft.png)

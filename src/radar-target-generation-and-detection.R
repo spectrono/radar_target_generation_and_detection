@@ -194,34 +194,31 @@ close_device()
 
 ## RANGE MEASUREMENT
 
-# *TODO* :
-# reshape the vector into Nr*Nd array. Nr and Nd here would also define the size
-# of Range and Doppler FFT respectively.
-# Mix2D <- matrix(Mix, nrow = Nr, ncol = Nd)
+# Reshape the beat signal into an Nr x Nd array (column-major, matching
+# MATLAB's reshape: column j holds chirp j).
+Mix2D <- matrix(Mix, nrow = Nr, ncol = Nd)
 
-# *TODO* :
-# run the FFT on the beat signal along the range bins dimension (Nr) and
-# normalize.
-# sig_fft <- fft(Mix2D[, 1]) / Nr
+# FFT of the first chirp along the range dimension, normalized by Nr.
+sig_fft <- fft(Mix2D[, 1]) / Nr
+# Absolute value of the FFT output.
+sig_fft <- Mod(sig_fft)
+# Output of FFT is double sided; keep only one side of the spectrum.
+sig_fft <- sig_fft[1:(Nr / 2)]
 
-# *TODO* :
-# Take the absolute value of FFT output
-# sig_fft <- Mod(sig_fft)
+range_fft_axis <- (0:(Nr / 2 - 1)) * (c / (2 * B))   # bin k -> k * range resolution (m)
 
-# *TODO* :
-# Output of FFT is double sided signal, but we are interested in only one side
-# of the spectrum. Hence we throw out half of the samples.
-# sig_fft <- sig_fft[1:(Nr / 2)]
+# Report the detected range peak.
+k_peak <- which.max(sig_fft) - 1
+cat(sprintf("Range FFT peak: bin %d -> %.1f m (target_range0 = %.0f m)\n",
+            k_peak, range_fft_axis[k_peak + 1], target_range0))
 
-# plotting the range
-#open_device("01_range_fft")
-
-# *TODO* :
-# plot FFT output
-# plot(..., type = "l", xlim = c(0, 200), ylim = c(0, 1),
-#      xlab = "Range (m)", ylab = "Normalized amplitude")
-
-#close_device()
+open_device("01_range_fft")
+plot(range_fft_axis, sig_fft / max(sig_fft), type = "l",
+     xlim = c(0, 200), ylim = c(0, 1),
+     xlab = "Range (m)", ylab = "Normalized amplitude",
+     main = "Range from First FFT")
+grid(col = "grey80")
+close_device()
 
 ## RANGE DOPPLER RESPONSE
 # The 2D FFT implementation is already provided here. This will run a 2DFFT
